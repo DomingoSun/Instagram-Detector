@@ -86,7 +86,7 @@ const RULES = [
   {
     id: "reach.health_claims", category: "recommendation_limits",
     consequence: "reach", severity: "high",
-    pattern: /(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|\d+\s*(天|日|週|周|个月|個月)\s*(瘦|減|掉)\s*\d+\s*(公斤|kg|斤)|(根治|包治百病|無效退費)|miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)/i,
+    pattern: /(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|[\d一二三四五六七八九十兩半]+\s*(天|日|週|周|个月|個月|礼拜|禮拜)\s*(瘦|減|掉)\s*[\d一二三四五六七八九十兩半]+\s*(公斤|kg|斤)|(根治|包治百病|無效退費)|miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)/i,
     message: "誇大健康/減肥療效宣稱，屬於「不可推薦內容」，還可能觸發誤導性內容審查",
     suggestion: "改用個人經驗描述（「我自己三個月的變化」）並避免保證性字眼與具體數字承諾",
   },
@@ -257,6 +257,72 @@ function analyze({ caption = "", transcript = "", hashtags = [] }) {
   return { verdict, risk_score: score, detections };
 }
 
+/* ---- 簡體 → 繁體正規化 ----
+ * 語音辨識（Whisper）輸出的中文多為簡體，而規則字典是繁體。
+ * 這裡只轉換規則中會用到的字，先處理有歧義的詞（赞助→贊助 vs 按赞→按讚），
+ * 再做單字對應，不是完整的簡繁轉換器。 */
+
+const ZH_WORD_MAP = [
+  ["赞助", "贊助"],
+  ["按赞", "按讚"], ["点赞", "點讚"], ["互赞", "互讚"], ["刷赞", "刷讚"],
+];
+
+const ZH_CHAR_MAP = {
+  "证": "證", "获": "獲", "稳": "穩", "赚": "賺", "赔": "賠", "电": "電",
+  "烟": "煙", "药": "藥", "处": "處", "枪": "槍", "弹": "彈", "买": "買",
+  "卖": "賣", "购": "購", "单": "單", "讯": "訊", "赌": "賭", "场": "場",
+  "娱": "娛", "乐": "樂", "网": "網", "赢": "贏", "带": "帶", "约": "約",
+  "炮": "砲", "杀": "殺", "残": "殘", "轻": "輕", "学": "學", "断": "斷",
+  "战": "戰", "标": "標", "记": "記", "个": "個", "点": "點", "转": "轉",
+  "载": "載", "运": "運", "发": "發", "奖": "獎", "赖": "賴", "线": "線",
+  "领": "領", "业": "業", "厂": "廠", "边": "邊", "绝": "絕", "对": "對",
+  "见": "見", "无": "無", "费": "費", "惊": "驚", "踪": "蹤", "着": "著",
+  "赞": "讚", "减": "減", "赛": "賽", "岁": "歲", "钱": "錢", "货": "貨",
+};
+
+function zhNormalize(text) {
+  let out = text;
+  for (const [from, to] of ZH_WORD_MAP) out = out.split(from).join(to);
+  return out.replace(/[一-鿿]/g, (ch) => ZH_CHAR_MAP[ch] || ch);
+}
+
+/* ---- 帶時間戳的逐字稿分段檢測 ----
+ * segments: [{ start, end, text }]（秒），回傳每段命中的規則與時間。 */
+
+function formatTime(seconds) {
+  if (seconds == null || Number.isNaN(seconds)) return "--:--";
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function analyzeSegments(segments) {
+  const findings = [];
+  for (const seg of segments) {
+    const text = zhNormalize(seg.text || "");
+    if (!text.trim()) continue;
+    for (const rule of RULES) {
+      const m = rule.pattern.exec(text);
+      if (m) {
+        findings.push({
+          start: seg.start, end: seg.end,
+          time: `${formatTime(seg.start)}–${formatTime(seg.end)}`,
+          match: m[0].trim(),
+          segment_text: text.trim(),
+          rule_id: rule.id, category: rule.category,
+          consequence: rule.consequence, severity: rule.severity,
+          message: rule.message, suggestion: rule.suggestion,
+        });
+      }
+    }
+  }
+  findings.sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  return findings;
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { analyze, collectHashtags, MANUAL_CHECKLIST, RULES };
+  module.exports = {
+    analyze, collectHashtags, MANUAL_CHECKLIST, RULES,
+    zhNormalize, analyzeSegments, formatTime,
+  };
 }

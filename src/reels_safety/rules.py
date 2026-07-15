@@ -146,7 +146,7 @@ TEXT_RULES: list[Rule] = [
         Consequence.REACH,
         Severity.HIGH,
         r"(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|"
-        r"\d+\s*(天|日|週|周|个月|個月)\s*(瘦|減|掉)\s*\d+\s*(公斤|kg|斤)|"
+        r"[\d一二三四五六七八九十兩半]+\s*(天|日|週|周|个月|個月|礼拜|禮拜)\s*(瘦|減|掉)\s*[\d一二三四五六七八九十兩半]+\s*(公斤|kg|斤)|"
         r"(根治|包治百病|無效退費)|"
         r"miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)",
         "誇大健康/減肥療效宣稱，屬於「不可推薦內容」，還可能觸發誤導性內容審查",
