@@ -1,4 +1,4 @@
-"""Data models for the Reels safety detector."""
+"""Data models for the Reels policy compliance checker."""
 
 from __future__ import annotations
 
@@ -7,11 +7,20 @@ from enum import Enum
 
 
 class Verdict(str, Enum):
-    """Overall safety verdict for a Reel."""
+    """Overall pre-publish verdict for a Reel."""
 
-    SAFE = "safe"
-    CAUTION = "caution"
-    UNSAFE = "unsafe"
+    PASS = "pass"                      # 未發現問題
+    REVIEW = "review"                  # 小問題，建議調整
+    REACH_RISK = "reach_risk"          # 有被限流（降低觸及）的風險
+    VIOLATION_RISK = "violation_risk"  # 可能違反社群守則，有下架/停權風險
+
+
+class Consequence(str, Enum):
+    """What kind of penalty a rule hit points to."""
+
+    REMOVAL = "removal"  # 違反社群守則：內容下架、帳號警告/停權
+    REACH = "reach"      # 違反推薦準則/垃圾訊號：不被推薦、限流
+    QUALITY = "quality"  # 品質/最佳實務建議：不罰，但影響表現
 
 
 class Severity(str, Enum):
@@ -33,9 +42,11 @@ SEVERITY_WEIGHT = {
 
 @dataclass
 class ReelContent:
-    """Input content extracted from an Instagram Reel.
+    """Input content for one Reel you are about to publish.
 
     All fields are optional — the analyzer works with whatever is provided.
+    Hashtags written inside the caption (``#foo``) are extracted automatically;
+    the ``hashtags`` field is for tags you plan to add separately.
     """
 
     url: str = ""
@@ -73,21 +84,25 @@ class ReelContent:
 
 @dataclass
 class Detection:
-    """A single safety finding."""
+    """A single policy finding."""
 
     category: str
+    consequence: Consequence
     severity: Severity
     rule_id: str
     message: str
+    suggestion: str
     field: str
     evidence: str
 
     def to_dict(self) -> dict:
         return {
             "category": self.category,
+            "consequence": self.consequence.value,
             "severity": self.severity.value,
             "rule_id": self.rule_id,
             "message": self.message,
+            "suggestion": self.suggestion,
             "field": self.field,
             "evidence": self.evidence,
         }
@@ -95,7 +110,7 @@ class Detection:
 
 @dataclass
 class AnalysisResult:
-    """Aggregated analysis of one Reel."""
+    """Aggregated pre-publish analysis of one Reel."""
 
     verdict: Verdict
     risk_score: int  # 0-100

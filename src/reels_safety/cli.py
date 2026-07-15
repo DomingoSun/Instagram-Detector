@@ -1,10 +1,10 @@
-"""Command-line interface for the Reels safety detector.
+"""發佈前政策檢查 CLI。
 
-Usage examples:
+用法範例：
 
-    reels-safety --caption "Double your money! DM me to invest"
-    reels-safety --json-file reel.json --format json
-    echo "free bitcoin giveaway t.me/xyz" | reels-safety --stdin
+    reels-safety --caption "按讚+分享抽AirPods！ #f4f #tagsforlikes"
+    reels-safety --json-file examples/risky_reel.json --format json
+    echo "7天瘦5公斤 保證有效" | reels-safety --stdin
 """
 
 from __future__ import annotations
@@ -16,73 +16,90 @@ import sys
 from reels_safety import __version__
 from reels_safety.analyzer import analyze
 from reels_safety.models import AnalysisResult, ReelContent, Verdict
+from reels_safety.rules import MANUAL_CHECKLIST
 
 _VERDICT_LABEL = {
-    Verdict.SAFE: "SAFE",
-    Verdict.CAUTION: "CAUTION",
-    Verdict.UNSAFE: "UNSAFE",
+    Verdict.PASS: "✅ 通過 — 未發現政策問題",
+    Verdict.REVIEW: "🔍 建議調整 — 有小問題但風險低",
+    Verdict.REACH_RISK: "⚠️ 限流風險 — 內容可能不被推薦、觸及下降",
+    Verdict.VIOLATION_RISK: "🚫 違規風險 — 可能被下架或影響帳號",
+}
+
+_SEVERITY_LABEL = {"low": "低", "medium": "中", "high": "高", "critical": "嚴重"}
+_CONSEQUENCE_LABEL = {
+    "removal": "下架/帳號處分",
+    "reach": "限流",
+    "quality": "最佳實務",
+}
+
+_EXIT_CODE = {
+    Verdict.PASS: 0,
+    Verdict.REVIEW: 0,
+    Verdict.REACH_RISK: 1,
+    Verdict.VIOLATION_RISK: 2,
 }
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reels-safety",
-        description="Analyze Instagram Reels content for safety risks.",
+        description="發佈前檢查 Reels 內容是否有違反 Instagram 政策、被限流或下架的風險。",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--url", default="", help="Reel URL (metadata only, not fetched)")
-    parser.add_argument("--caption", default="", help="Reel caption text")
-    parser.add_argument("--transcript", default="", help="Audio transcript text")
+    parser.add_argument("--url", default="", help="Reel 網址（僅記錄，不會抓取）")
+    parser.add_argument("--caption", default="", help="貼文文案（含 #hashtag 會自動解析）")
+    parser.add_argument("--transcript", default="", help="影片口白/字幕逐字稿")
     parser.add_argument(
         "--comment",
         action="append",
         default=[],
         dest="comments",
-        help="A comment to analyze (repeatable)",
+        help="要一併檢查的留言（可重複使用）",
     )
     parser.add_argument(
         "--hashtag",
         action="append",
         default=[],
         dest="hashtags",
-        help="A hashtag to analyze (repeatable)",
+        help="要使用的 hashtag（可重複使用）",
     )
     parser.add_argument(
         "--json-file",
-        help="Path to a JSON file with reel content "
-        "(keys: url, caption, hashtags, comments, author_username, audio_transcript)",
+        help="JSON 檔路徑（欄位：url, caption, hashtags, comments, audio_transcript）",
+    )
+    parser.add_argument("--stdin", action="store_true", help="從標準輸入讀取文案")
+    parser.add_argument(
+        "--no-checklist", action="store_true", help="不顯示人工檢查清單"
     )
     parser.add_argument(
-        "--stdin",
-        action="store_true",
-        help="Read caption text from standard input",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["text", "json"],
-        default="text",
-        help="Output format (default: text)",
+        "--format", choices=["text", "json"], default="text", help="輸出格式（預設 text）"
     )
     return parser
 
 
-def _render_text(result: AnalysisResult) -> str:
+def _render_text(result: AnalysisResult, show_checklist: bool) -> str:
     lines = [
-        f"Verdict:    {_VERDICT_LABEL[result.verdict]}",
-        f"Risk score: {result.risk_score}/100",
+        f"判定:     {_VERDICT_LABEL[result.verdict]}",
+        f"風險分數: {result.risk_score}/100",
     ]
-    if result.categories:
-        lines.append("Categories:")
-        for category, weight in sorted(result.categories.items(), key=lambda kv: -kv[1]):
-            lines.append(f"  - {category} (+{weight})")
     if result.detections:
-        lines.append("Detections:")
+        lines.append("")
+        lines.append("發現的問題:")
         for det in result.detections:
-            lines.append(f"  [{det.severity.value.upper():>8}] {det.message}")
-            lines.append(f"           rule: {det.rule_id}  field: {det.field}")
-            lines.append(f"           evidence: {det.evidence!r}")
+            sev = _SEVERITY_LABEL[det.severity.value]
+            cons = _CONSEQUENCE_LABEL[det.consequence.value]
+            lines.append(f"  [{sev}｜{cons}] {det.message}")
+            lines.append(f"      位置: {det.field}  證據: {det.evidence!r}")
+            lines.append(f"      建議: {det.suggestion}")
     else:
-        lines.append("No safety issues detected.")
+        lines.append("")
+        lines.append("文字內容未發現政策問題。")
+
+    if show_checklist:
+        lines.append("")
+        lines.append("發佈前人工檢查清單（文字掃不到的部分）:")
+        for item in MANUAL_CHECKLIST:
+            lines.append(f"  □ {item}")
     return "\n".join(lines)
 
 
@@ -95,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             with open(args.json_file, encoding="utf-8") as fh:
                 content = ReelContent.from_dict(json.load(fh))
         except (OSError, json.JSONDecodeError) as exc:
-            parser.error(f"cannot read {args.json_file}: {exc}")
+            parser.error(f"無法讀取 {args.json_file}: {exc}")
     else:
         caption = args.caption
         if args.stdin:
@@ -109,15 +126,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if not content.text_fields():
-        parser.error("no content to analyze — provide --caption, --comment, --json-file, or --stdin")
+        parser.error("沒有可檢查的內容 — 請提供 --caption、--comment、--json-file 或 --stdin")
 
     result = analyze(content)
     if args.format == "json":
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
     else:
-        print(_render_text(result))
+        print(_render_text(result, show_checklist=not args.no_checklist))
 
-    return 0 if result.verdict is Verdict.SAFE else 1
+    return _EXIT_CODE[result.verdict]
 
 
 if __name__ == "__main__":

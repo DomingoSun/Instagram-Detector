@@ -1,24 +1,21 @@
-"""Core analysis engine: run rules over Reel content and aggregate a verdict."""
+"""Core analysis engine: run policy rules over Reel content and aggregate a verdict."""
 
 from __future__ import annotations
-
-from urllib.parse import urlparse
 
 from reels_safety import rules
 from reels_safety.models import (
     SEVERITY_WEIGHT,
     AnalysisResult,
+    Consequence,
     Detection,
     ReelContent,
     Severity,
     Verdict,
 )
 
-# Verdict thresholds on the 0-100 risk score.
-CAUTION_THRESHOLD = 20
-UNSAFE_THRESHOLD = 55
+# 限流判定門檻：REACH 類加權總分達此值視為有限流風險
+REACH_SCORE_THRESHOLD = 30
 
-# Any single CRITICAL detection forces an UNSAFE verdict regardless of score.
 _MAX_EVIDENCE_LEN = 120
 
 
@@ -39,9 +36,11 @@ def _run_text_rules(field: str, text: str) -> list[Detection]:
             detections.append(
                 Detection(
                     category=rule.category,
+                    consequence=rule.consequence,
                     severity=rule.severity,
                     rule_id=rule.rule_id,
                     message=rule.message,
+                    suggestion=rule.suggestion,
                     field=field,
                     evidence=_snippet(text, match.start(), match.end()),
                 )
@@ -49,77 +48,89 @@ def _run_text_rules(field: str, text: str) -> list[Detection]:
     return detections
 
 
-def _domain_of(url: str) -> str:
-    if not url.lower().startswith(("http://", "https://")):
-        url = "http://" + url
-    return (urlparse(url).hostname or "").lower().lstrip("www.")
+def collect_hashtags(content: ReelContent) -> list[str]:
+    """All hashtags: explicit ``hashtags`` field plus ``#tags`` found in the caption."""
+    tags = [h.lstrip("#").lower() for h in content.hashtags if h.strip("#")]
+    tags += [m.group(1).lower() for m in rules.HASHTAG_IN_TEXT.finditer(content.caption)]
+    return tags
 
 
-def _run_url_rules(field: str, text: str) -> list[Detection]:
-    detections = []
-    for match in rules.URL_PATTERN.finditer(text):
-        url = match.group(0)
-        domain = _domain_of(url)
-        if not domain:
-            continue
+def _check_hashtags(content: ReelContent) -> list[Detection]:
+    tags = collect_hashtags(content)
+    if not tags:
+        return []
 
-        if rules.LOOKALIKE_PATTERN.search(url):
-            detections.append(
-                Detection(
-                    category=rules.PHISHING,
-                    severity=Severity.HIGH,
-                    rule_id="phishing.lookalike_domain",
-                    message="Link uses a lookalike domain impersonating a known platform",
-                    field=field,
-                    evidence=url[:_MAX_EVIDENCE_LEN],
-                )
+    detections: list[Detection] = []
+
+    def det(severity: Severity, rule_id: str, message: str, suggestion: str, evidence: str):
+        detections.append(
+            Detection(
+                category=rules.HASHTAG,
+                consequence=Consequence.REACH,
+                severity=severity,
+                rule_id=rule_id,
+                message=message,
+                suggestion=suggestion,
+                field="hashtags",
+                evidence=evidence,
             )
-            continue
+        )
 
-        if domain in rules.URL_SHORTENERS:
-            detections.append(
-                Detection(
-                    category=rules.PHISHING,
-                    severity=Severity.LOW,
-                    rule_id="phishing.shortened_url",
-                    message="Shortened/redirect link hides its real destination",
-                    field=field,
-                    evidence=url[:_MAX_EVIDENCE_LEN],
-                )
-            )
+    if len(tags) > rules.HASHTAG_HARD_LIMIT:
+        det(
+            Severity.HIGH,
+            "hashtag.over_hard_limit",
+            f"共 {len(tags)} 個 hashtag，超過 Instagram 上限 {rules.HASHTAG_HARD_LIMIT} 個，"
+            "貼文可能無法發佈或被直接判為垃圾內容",
+            "刪減到 3–5 個最相關的標籤",
+            f"{len(tags)} tags",
+        )
+    elif len(tags) > rules.HASHTAG_RECOMMENDED_MAX:
+        det(
+            Severity.LOW,
+            "hashtag.too_many",
+            f"共 {len(tags)} 個 hashtag，堆疊大量標籤是垃圾內容訊號",
+            "官方建議 3–5 個精準標籤，效果優於大量廣撒",
+            f"{len(tags)} tags",
+        )
 
-        if any(domain == d or domain.endswith("." + d) for d in rules.MESSAGING_APP_DOMAINS):
-            severity = (
-                Severity.HIGH if rules.MONEY_CONTEXT.search(text) else Severity.MEDIUM
-            )
-            detections.append(
-                Detection(
-                    category=rules.PHISHING,
-                    severity=severity,
-                    rule_id="phishing.offplatform_messaging",
-                    message=(
-                        "Pushes viewers to an off-platform messaging app"
-                        + (" in a money-making context" if severity is Severity.HIGH else "")
-                    ),
-                    field=field,
-                    evidence=url[:_MAX_EVIDENCE_LEN],
-                )
-            )
+    restricted = sorted(set(tags) & rules.RESTRICTED_HASHTAGS)
+    if restricted:
+        det(
+            Severity.MEDIUM,
+            "hashtag.restricted",
+            "使用了曾被回報遭封鎖/限制的 hashtag，貼文可能不會出現在標籤頁與推薦中",
+            "發佈前到 IG 搜尋該標籤：若標籤頁顯示異常或搜不到，就換掉；清單會隨時間變動",
+            ", ".join(f"#{t}" for t in restricted),
+        )
+
+    seen: set[str] = set()
+    dupes = sorted({t for t in tags if t in seen or seen.add(t)})
+    if dupes:
+        det(
+            Severity.LOW,
+            "hashtag.duplicates",
+            "有重複的 hashtag",
+            "移除重複標籤，重複堆疊沒有加成、只有垃圾訊號",
+            ", ".join(f"#{t}" for t in dupes),
+        )
+
     return detections
 
 
 def analyze(content: ReelContent) -> AnalysisResult:
-    """Analyze Reel content and return a scored safety verdict."""
+    """Analyze Reel content and return a pre-publish policy verdict."""
     detections: list[Detection] = []
     for field, text in content.text_fields():
         detections.extend(_run_text_rules(field, text))
-        detections.extend(_run_url_rules(field, text))
+    detections.extend(_check_hashtags(content))
 
-    # Score: sum severity weights, but count each rule_id once per field to
-    # avoid a single spammy comment thread dominating the score.
+    # Score: sum severity weights, counting each rule_id once per field so a
+    # repeated phrase can't dominate the score.
     seen: set[tuple[str, str]] = set()
     categories: dict[str, int] = {}
     score = 0
+    reach_score = 0
     for det in detections:
         key = (det.rule_id, det.field)
         if key in seen:
@@ -127,16 +138,30 @@ def analyze(content: ReelContent) -> AnalysisResult:
         seen.add(key)
         weight = SEVERITY_WEIGHT[det.severity]
         score += weight
-        categories[det.category] = categories.get(det.category, 0) + weight
+        if det.consequence is not Consequence.QUALITY:
+            categories[det.category] = categories.get(det.category, 0) + weight
+        if det.consequence is Consequence.REACH:
+            reach_score += weight
 
     score = min(score, 100)
 
-    if any(d.severity is Severity.CRITICAL for d in detections) or score >= UNSAFE_THRESHOLD:
-        verdict = Verdict.UNSAFE
-    elif score >= CAUTION_THRESHOLD:
-        verdict = Verdict.CAUTION
+    removal_hits = [d for d in detections if d.consequence is Consequence.REMOVAL]
+    if any(d.severity in (Severity.HIGH, Severity.CRITICAL) for d in removal_hits):
+        verdict = Verdict.VIOLATION_RISK
+    elif (
+        removal_hits
+        or reach_score >= REACH_SCORE_THRESHOLD
+        or any(
+            d.consequence is Consequence.REACH
+            and d.severity in (Severity.MEDIUM, Severity.HIGH)
+            for d in detections
+        )
+    ):
+        verdict = Verdict.REACH_RISK
+    elif detections:
+        verdict = Verdict.REVIEW
     else:
-        verdict = Verdict.SAFE
+        verdict = Verdict.PASS
 
     detections.sort(key=lambda d: SEVERITY_WEIGHT[d.severity], reverse=True)
     return AnalysisResult(

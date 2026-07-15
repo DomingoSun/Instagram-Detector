@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reels-safety-detector"
-version = "0.1.0"
-description = "Analyze Instagram Reels content for safety risks (scams, phishing, dangerous challenges, harassment, spam)."
+version = "0.2.0"
+description = "Pre-publish checker for Instagram Reels: detect policy violations and reach-limiting (shadowban) risk signals in your own content."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

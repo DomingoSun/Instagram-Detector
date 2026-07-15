@@ -1,125 +1,156 @@
+# -*- coding: utf-8 -*-
 import pytest
 
-from reels_safety import analyze
-from reels_safety.models import ReelContent, Verdict
+from reels_safety import analyze, collect_hashtags
+from reels_safety.models import Consequence, ReelContent, Severity, Verdict
 
 
 def result_for(**kwargs):
     return analyze(ReelContent(**kwargs))
 
 
-class TestSafeContent:
-    def test_empty_content_is_safe(self):
+class TestCleanContent:
+    def test_empty_content_passes(self):
         result = result_for(caption="")
-        assert result.verdict is Verdict.SAFE
+        assert result.verdict is Verdict.PASS
         assert result.risk_score == 0
         assert result.detections == []
 
-    def test_ordinary_caption_is_safe(self):
+    def test_ordinary_creator_caption_passes(self):
         result = result_for(
-            caption="Sunset run along the beach tonight 🌅 new PB!",
-            hashtags=["running", "sunset", "fitness"],
+            caption="今天分享三個讓運鏡更穩的小技巧 🎬 #攝影 #vlog #創作者日常",
+            audio_transcript="第一個技巧是把手肘靠在身體上",
         )
-        assert result.verdict is Verdict.SAFE
-        assert result.detections == []
+        assert result.verdict is Verdict.PASS
 
-    def test_normal_link_is_safe(self):
-        result = result_for(caption="Full recipe on my blog: https://example.com/recipes/pasta")
-        assert result.verdict is Verdict.SAFE
-
-
-class TestScamDetection:
-    def test_guaranteed_returns(self):
-        result = result_for(caption="Guaranteed profit every week, join now!")
-        assert any(d.rule_id == "scam.guaranteed_returns" for d in result.detections)
-        assert result.verdict is not Verdict.SAFE
-
-    def test_crypto_giveaway_with_telegram_link_is_unsafe(self):
-        result = result_for(
-            caption="FREE bitcoin giveaway!! DM me to invest, join https://t.me/fastprofits"
-        )
-        assert result.verdict is Verdict.UNSAFE
-        categories = set(result.categories)
-        assert "scam_fraud" in categories
-        assert "phishing_links" in categories
-
-    def test_cash_app_flip(self):
-        result = result_for(comments=["cashapp flip $50 into $500, dm me"])
-        assert any(d.rule_id == "scam.cashapp_flip" for d in result.detections)
+    def test_english_clean_caption_passes(self):
+        result = result_for(caption="Morning routine that changed my energy levels #morningroutine")
+        assert result.verdict is Verdict.PASS
 
 
-class TestPhishing:
-    def test_shortened_url_flagged_low(self):
-        result = result_for(caption="check this out https://bit.ly/3xyz")
-        det = next(d for d in result.detections if d.rule_id == "phishing.shortened_url")
-        assert det.severity.value == "low"
-        assert result.verdict is Verdict.SAFE  # one low signal alone stays safe
+class TestReachRisk:
+    def test_engagement_bait_chinese(self):
+        result = result_for(caption="按讚+分享+標記3個朋友就抽AirPods！")
+        assert any(d.rule_id == "reach.engagement_bait" for d in result.detections)
+        assert result.verdict is Verdict.REACH_RISK
 
-    def test_lookalike_domain_flagged_high(self):
-        result = result_for(caption="verify your account at https://1nstagram-help.net/login")
-        assert any(d.rule_id == "phishing.lookalike_domain" for d in result.detections)
-        assert result.verdict is not Verdict.SAFE
+    def test_engagement_bait_english(self):
+        result = result_for(caption="like and comment to win a free iPhone!")
+        assert any(d.rule_id == "reach.engagement_bait" for d in result.detections)
 
-    def test_messaging_link_without_money_context_is_medium(self):
-        result = result_for(caption="join our fan chat https://t.me/fanclub")
-        det = next(d for d in result.detections if d.rule_id == "phishing.offplatform_messaging")
-        assert det.severity.value == "medium"
+    def test_health_claims_chinese(self):
+        result = result_for(caption="7天瘦5公斤，保證有效，無效退費！")
+        det = next(d for d in result.detections if d.rule_id == "reach.health_claims")
+        assert det.severity is Severity.HIGH
+        assert result.verdict is Verdict.REACH_RISK
 
+    def test_repost_watermark_mention(self):
+        result = result_for(caption="轉載自抖音，好笑到不行")
+        assert any(d.rule_id == "reach.repost_watermark" for d in result.detections)
 
-class TestDangerousChallenges:
-    def test_blackout_challenge(self):
-        result = result_for(caption="trying the blackout challenge tonight, who's in?")
-        assert any(d.category == "dangerous_challenge" for d in result.detections)
-        assert result.verdict is not Verdict.SAFE
+    def test_clickbait_alone_is_only_review(self):
+        result = result_for(caption="震驚！99%的人都不知道這件事")
+        assert any(d.rule_id == "reach.clickbait" for d in result.detections)
+        assert result.verdict is Verdict.REVIEW  # low severity alone
 
-
-class TestSelfHarmAndHarassment:
-    def test_kys_comment_forces_unsafe(self):
-        result = result_for(comments=["nice video", "kys loser"])
-        assert result.verdict is Verdict.UNSAFE
-        assert any(d.category == "self_harm" for d in result.detections)
-
-    def test_direct_threat_forces_unsafe(self):
-        result = result_for(comments=["i'm going to find you"])
-        assert result.verdict is Verdict.UNSAFE
+    def test_follow_bait(self):
+        result = result_for(caption="互粉互讚來～ f4f")
+        assert any(d.rule_id == "spam.follow_bait" for d in result.detections)
+        assert result.verdict is Verdict.REACH_RISK
 
 
-class TestSpam:
-    def test_follow_bait_alone_is_low_risk(self):
-        result = result_for(caption="follow me to win a prize! f4f")
-        assert any(d.category == "spam_engagement_bait" for d in result.detections)
+class TestViolationRisk:
+    def test_regulated_goods(self):
+        result = result_for(caption="電子煙煙油下單私訊我")
+        assert result.verdict is Verdict.VIOLATION_RISK
+        assert any(d.consequence is Consequence.REMOVAL for d in result.detections)
 
-    def test_buy_followers(self):
-        result = result_for(hashtags=["freefollowers"], caption="buy followers cheap")
-        assert any(d.rule_id == "spam.free_followers" for d in result.detections)
+    def test_gambling_promo(self):
+        result = result_for(caption="娛樂城註冊就送888，連結在主頁")
+        assert result.verdict is Verdict.VIOLATION_RISK
+
+    def test_financial_guarantee(self):
+        result = result_for(audio_transcript="跟著老師操作保證獲利穩賺不賠")
+        assert result.verdict is Verdict.VIOLATION_RISK
+
+    def test_dangerous_challenge(self):
+        result = result_for(caption="今天來試 blackout challenge")
+        assert result.verdict is Verdict.VIOLATION_RISK
+
+    def test_buy_engagement_is_reach_risk_not_violation(self):
+        # MEDIUM removal → 帳號風險警告，但單獨出現不到「違規」級
+        result = result_for(caption="有人用過買粉服務嗎")
+        assert any(d.rule_id == "spam.buy_engagement" for d in result.detections)
+        assert result.verdict is Verdict.REACH_RISK
+
+
+class TestHashtags:
+    def test_hashtags_extracted_from_caption(self):
+        content = ReelContent(caption="今天的vlog #日常 #Vlog", hashtags=["旅行"])
+        assert sorted(collect_hashtags(content)) == ["vlog", "旅行", "日常"]
+
+    def test_over_hard_limit(self):
+        result = result_for(hashtags=[f"tag{i}" for i in range(31)])
+        det = next(d for d in result.detections if d.rule_id == "hashtag.over_hard_limit")
+        assert det.severity is Severity.HIGH
+        assert result.verdict is Verdict.REACH_RISK
+
+    def test_too_many_but_under_limit(self):
+        result = result_for(hashtags=[f"tag{i}" for i in range(15)])
+        assert any(d.rule_id == "hashtag.too_many" for d in result.detections)
+        assert not any(d.rule_id == "hashtag.over_hard_limit" for d in result.detections)
+
+    def test_restricted_hashtag(self):
+        result = result_for(caption="new reel! #tagsforlikes #fitness")
+        det = next(d for d in result.detections if d.rule_id == "hashtag.restricted")
+        assert "#tagsforlikes" in det.evidence
+        assert result.verdict is Verdict.REACH_RISK
+
+    def test_duplicate_hashtags(self):
+        result = result_for(hashtags=["fitness", "fitness", "gym"])
+        assert any(d.rule_id == "hashtag.duplicates" for d in result.detections)
+
+    def test_few_clean_hashtags_pass(self):
+        result = result_for(caption="拍攝日記 #攝影 #台北")
+        assert result.verdict is Verdict.PASS
+
+
+class TestDisclosure:
+    def test_sponsored_content_flagged_as_quality_note(self):
+        result = result_for(caption="這支影片由XX品牌贊助")
+        det = next(d for d in result.detections if d.rule_id == "disclosure.paid_partnership")
+        assert det.consequence is Consequence.QUALITY
+        assert result.verdict is Verdict.REVIEW  # note only, not a risk verdict
 
 
 class TestScoring:
     def test_duplicate_rule_same_field_counted_once(self):
-        result = result_for(caption="xxx xxx xxx xxx")
-        assert result.risk_score == 18  # one MEDIUM adult keyword hit
+        result = result_for(caption="互粉 互粉 互粉")
+        assert result.risk_score == 18  # one MEDIUM hit
 
     def test_score_capped_at_100(self):
         result = result_for(
             caption=(
-                "guaranteed profit! free bitcoin giveaway! dm me to invest! "
-                "cashapp flip! claim your prize! https://t.me/scam https://bit.ly/x"
+                "娛樂城註冊送888 保證獲利穩賺不賠 電子煙下單私訊 "
+                "按讚+分享抽獎 7天瘦5公斤保證有效 互粉 f4f #tagsforlikes"
             )
         )
         assert result.risk_score <= 100
-        assert result.verdict is Verdict.UNSAFE
+        assert result.verdict is Verdict.VIOLATION_RISK
 
     def test_detections_sorted_by_severity(self):
-        result = result_for(
-            caption="follow me to win! guaranteed profit dm me",
-        )
-        weights = [d.severity for d in result.detections]
-        assert weights == sorted(
-            weights, key=lambda s: {"low": 0, "medium": 1, "high": 2, "critical": 3}[s.value], reverse=True
-        )
+        result = result_for(caption="震驚！按讚+分享抽獎 保證獲利穩賺不賠")
+        order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        weights = [order[d.severity.value] for d in result.detections]
+        assert weights == sorted(weights, reverse=True)
+
+    def test_quality_notes_do_not_enter_categories(self):
+        result = result_for(caption="這支影片由XX品牌贊助")
+        assert "disclosure" not in result.categories
+        assert result.risk_score > 0  # still shown in score/detections
 
 
-class TestReelContent:
+class TestModels:
     def test_from_dict_roundtrip(self):
         data = {
             "url": "https://www.instagram.com/reel/abc/",
@@ -134,10 +165,10 @@ class TestReelContent:
         assert len(content.text_fields()) == 4  # caption, transcript, comment, hashtags
 
     def test_result_to_dict_is_json_shaped(self):
-        result = result_for(caption="free bitcoin giveaway")
+        result = result_for(caption="按讚+分享就抽獎")
         d = result.to_dict()
         assert set(d) == {"verdict", "risk_score", "categories", "detections"}
-        assert isinstance(d["detections"], list)
+        assert d["detections"][0]["suggestion"]
 
 
 if __name__ == "__main__":
