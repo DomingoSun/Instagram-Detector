@@ -154,7 +154,7 @@
   </footer>
 </div>
 
-<script src="detector.js"></script>
+<script src="detector.js?v=0.3.0"></script>
 <script type="module">
   const statusEl = document.getElementById("status");
   const barEl = document.getElementById("bar");
@@ -181,6 +181,12 @@
     statusEl.textContent = text;
     if (pct == null) { barEl.style.display = "none"; }
     else { barEl.style.display = "block"; barEl.value = pct; }
+  }
+
+  // 舊版 detector.js 快取防呆：缺少新函式時直接提示強制重新整理
+  if (typeof analyzeSegments !== "function" || typeof zhNormalize !== "function") {
+    setStatus("❌ 偵測到舊版快取（detector.js 版本過舊）。\n請按 Ctrl+Shift+R（Mac：Cmd+Shift+R）強制重新整理，或改用無痕視窗。");
+    throw new Error("stale detector.js cache");
   }
 
   let transformers;

@@ -43,7 +43,7 @@ const RULES = [
   {
     id: "cg.financial_guarantee", category: "community_guidelines",
     consequence: "removal", severity: "high",
-    pattern: /(保證獲利|穩賺不賠|翻倍|帶你上岸).{0,12}(投資|操盤|加入|私訊|老師)?|(guaranteed|risk[- ]?free)\s+(profit|returns?)|double\s+your\s+(money|investment)/i,
+    pattern: /(保證獲利|穩賺不賠|翻倍|帶你上岸|老師帶單|帶你賺).{0,12}(投資|操盤|加入|私訊|老師)?|(guaranteed|risk[- ]?free)\s+(profit|returns?)|double\s+your\s+(money|investment)/i,
     message: "保證獲利/穩賺不賠等投資宣稱，會被視為金融詐騙類內容",
     suggestion: "拿掉任何保證報酬的字句；理財內容改用中性描述並加上風險提醒",
   },
@@ -86,9 +86,23 @@ const RULES = [
   {
     id: "reach.health_claims", category: "recommendation_limits",
     consequence: "reach", severity: "high",
-    pattern: /(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|[\d一二三四五六七八九十兩半]+\s*(天|日|週|周|个月|個月|礼拜|禮拜)\s*(瘦|減|掉)\s*[\d一二三四五六七八九十兩半]+\s*(公斤|kg|斤)|(根治|包治百病|無效退費)|miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)/i,
+    pattern: /(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|[\d一二三四五六七八九十兩半]+\s*(天|日|週|周|个月|個月|礼拜|禮拜)\s*(瘦|減|掉)\s*[\d一二三四五六七八九十兩半]+\s*(公斤|kg|斤)|(根治|包治百病|無效退費)|(減肥|瘦身|美白)神(藥|器|水)|(使用)?(前後|前后)(對|对)比(照|圖|图|效果)|miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)|before.{0,3}after\s+(photo|results?)/i,
     message: "誇大健康/減肥療效宣稱，屬於「不可推薦內容」，還可能觸發誤導性內容審查",
     suggestion: "改用個人經驗描述（「我自己三個月的變化」）並避免保證性字眼與具體數字承諾",
+  },
+  {
+    id: "reach.offsite_cta", category: "recommendation_limits",
+    consequence: "reach", severity: "medium",
+    pattern: /(點|点)(擊|击)?.{0,4}(首頁|主頁|个人|個人檔案|bio).{0,4}(連結|链接|link)|(連結|链接)(在|放)(首頁|主頁|bio|個人檔案)|link\s+in\s+(my\s+)?bio|(點|点)(擊|击)(連結|链接)|click\s+(the\s+)?link|免費(領取|索取|下載)|私訊我?(領|拿|索取|報名|購買|下單)/i,
+    message: "呼籲點擊首頁/個人檔案連結或私訊領取，屬引流訊號，演算法會降低這類內容的推薦",
+    suggestion: "減少每支影片都出現的導流 CTA；把「點連結」改成內容價值描述，讓觀眾自然去個人檔案",
+  },
+  {
+    id: "reach.money_hype", category: "recommendation_limits",
+    consequence: "reach", severity: "medium",
+    pattern: /被(動|动)收入|快速致富|一夜暴富|財富自由|财富自由|(飆|飙)股|passive\s+income\s+(secret|hack|method)|get\s+rich\s+(quick|fast)/i,
+    message: "致富機會類話術（被動收入、快速致富、飆股），金融機會內容的推薦資格受限",
+    suggestion: "改談具體、可驗證的理財知識並加風險提醒，避免渲染報酬與致富速度",
   },
   {
     id: "reach.sexually_suggestive", category: "recommendation_limits",
@@ -129,7 +143,7 @@ const RULES = [
   {
     id: "spam.offplatform_push", category: "spam_signals",
     consequence: "reach", severity: "low",
-    pattern: /(加|\+|＋)\s*(賴|line|微信|wechat|telegram|tg)\b|私訊我?(領|拿|索取)|https?:\/\/(t\.me|wa\.me|lin\.ee)\/\S+/i,
+    pattern: /(加|\+|＋)\s*(賴|line|微信|wechat|telegram|tg)\b|https?:\/\/(t\.me|wa\.me|lin\.ee)\/\S+/i,
     message: "把觀眾導流到站外通訊軟體（LINE/微信/Telegram），是演算法的垃圾/詐騙關聯訊號",
     suggestion: "偶爾使用影響不大，但每支影片都導流會累積負面權重；連結建議放個人檔案而非文案",
   },
@@ -265,6 +279,7 @@ function analyze({ caption = "", transcript = "", hashtags = [] }) {
 const ZH_WORD_MAP = [
   ["赞助", "贊助"],
   ["按赞", "按讚"], ["点赞", "點讚"], ["互赞", "互讚"], ["刷赞", "刷讚"],
+  ["链接", "連結"], ["视频", "影片"],
 ];
 
 const ZH_CHAR_MAP = {
@@ -278,6 +293,8 @@ const ZH_CHAR_MAP = {
   "领": "領", "业": "業", "厂": "廠", "边": "邊", "绝": "絕", "对": "對",
   "见": "見", "无": "無", "费": "費", "惊": "驚", "踪": "蹤", "着": "著",
   "赞": "讚", "减": "減", "赛": "賽", "岁": "歲", "钱": "錢", "货": "貨",
+  "动": "動", "财": "財", "飙": "飆", "师": "師", "页": "頁", "档": "檔",
+  "击": "擊",
 };
 
 function zhNormalize(text) {
@@ -320,9 +337,29 @@ function analyzeSegments(segments) {
   return findings;
 }
 
+/* 合併相鄰影格對同一規則、同一字詞的重複命中（OCR 逐格辨識用），
+ * 讓同一張字卡在畫面上停留多秒時輸出成一個時間區間而不是多筆。 */
+function mergeFindings(findings, maxGapSeconds = 4) {
+  const sorted = [...findings].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  const out = [];
+  for (const f of sorted) {
+    const last = out[out.length - 1];
+    if (
+      last && last.rule_id === f.rule_id && last.match === f.match &&
+      (f.start ?? 0) - (last.end ?? 0) <= maxGapSeconds
+    ) {
+      last.end = Math.max(last.end ?? 0, f.end ?? 0);
+      last.time = `${formatTime(last.start)}–${formatTime(last.end)}`;
+    } else {
+      out.push({ ...f });
+    }
+  }
+  return out;
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     analyze, collectHashtags, MANUAL_CHECKLIST, RULES,
-    zhNormalize, analyzeSegments, formatTime,
+    zhNormalize, analyzeSegments, formatTime, mergeFindings,
   };
 }

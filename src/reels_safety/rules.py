@@ -83,7 +83,7 @@ TEXT_RULES: list[Rule] = [
         COMMUNITY,
         Consequence.REMOVAL,
         Severity.HIGH,
-        r"(保證獲利|穩賺不賠|翻倍|帶你上岸).{0,12}(投資|操盤|加入|私訊|老師)?|"
+        r"(保證獲利|穩賺不賠|翻倍|帶你上岸|老師帶單|帶你賺).{0,12}(投資|操盤|加入|私訊|老師)?|"
         r"(guaranteed|risk[- ]?free)\s+(profit|returns?)|double\s+your\s+(money|investment)",
         "保證獲利/穩賺不賠等投資宣稱，會被視為金融詐騙類內容",
         "拿掉任何保證報酬的字句；理財內容改用中性描述並加上風險提醒",
@@ -147,10 +147,32 @@ TEXT_RULES: list[Rule] = [
         Severity.HIGH,
         r"(保證|一定|絕對|百分百|100%)\s*(瘦|有效|見效|根治|治好)|"
         r"[\d一二三四五六七八九十兩半]+\s*(天|日|週|周|个月|個月|礼拜|禮拜)\s*(瘦|減|掉)\s*[\d一二三四五六七八九十兩半]+\s*(公斤|kg|斤)|"
-        r"(根治|包治百病|無效退費)|"
-        r"miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)",
+        r"(根治|包治百病|無效退費)|(減肥|瘦身|美白)神(藥|器|水)|(使用)?(前後|前后)(對|对)比(照|圖|图|效果)|"
+        r"miracle\s+cure|lose\s+\d+\s*(lbs|pounds|kg)\s+in\s+\d+\s*(days?|weeks?)|cures?\s+(cancer|diabetes)|before.{0,3}after\s+(photo|results?)",
         "誇大健康/減肥療效宣稱，屬於「不可推薦內容」，還可能觸發誤導性內容審查",
         "改用個人經驗描述（「我自己三個月的變化」）並避免保證性字眼與具體數字承諾",
+    ),
+    _rule(
+        "reach.offsite_cta",
+        RECOMMEND,
+        Consequence.REACH,
+        Severity.MEDIUM,
+        r"(點|点)(擊|击)?.{0,4}(首頁|主頁|个人|個人檔案|bio).{0,4}(連結|链接|link)|"
+        r"(連結|链接)(在|放)(首頁|主頁|bio|個人檔案)|link\s+in\s+(my\s+)?bio|"
+        r"(點|点)(擊|击)(連結|链接)|click\s+(the\s+)?link|"
+        r"免費(領取|索取|下載)|私訊我?(領|拿|索取|報名|購買|下單)",
+        "呼籲點擊首頁/個人檔案連結或私訊領取，屬引流訊號，演算法會降低這類內容的推薦",
+        "減少每支影片都出現的導流 CTA；把「點連結」改成內容價值描述，讓觀眾自然去個人檔案",
+    ),
+    _rule(
+        "reach.money_hype",
+        RECOMMEND,
+        Consequence.REACH,
+        Severity.MEDIUM,
+        r"被(動|动)收入|快速致富|一夜暴富|財富自由|财富自由|(飆|飙)股|"
+        r"passive\s+income\s+(secret|hack|method)|get\s+rich\s+(quick|fast)",
+        "致富機會類話術（被動收入、快速致富、飆股），金融機會內容的推薦資格受限",
+        "改談具體、可驗證的理財知識並加風險提醒，避免渲染報酬與致富速度",
     ),
     _rule(
         "reach.sexually_suggestive",
@@ -206,7 +228,7 @@ TEXT_RULES: list[Rule] = [
         SPAM,
         Consequence.REACH,
         Severity.LOW,
-        r"(加|\+|＋)\s*(賴|line|微信|wechat|telegram|tg)\b|私訊我?(領|拿|索取)|"
+        r"(加|\+|＋)\s*(賴|line|微信|wechat|telegram|tg)\b|"
         r"https?://(t\.me|wa\.me|lin\.ee)/\S+",
         "把觀眾導流到站外通訊軟體（LINE/微信/Telegram），是演算法的垃圾/詐騙關聯訊號",
         "偶爾使用影響不大，但每支影片都導流會累積負面權重；連結建議放個人檔案而非文案",

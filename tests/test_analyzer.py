@@ -58,6 +58,32 @@ class TestReachRisk:
         assert any(d.rule_id == "spam.follow_bait" for d in result.detections)
         assert result.verdict is Verdict.REACH_RISK
 
+    def test_offsite_cta_homepage_link(self):
+        result = result_for(caption="想要模板的點擊首頁連結領取！")
+        assert any(d.rule_id == "reach.offsite_cta" for d in result.detections)
+        assert result.verdict is Verdict.REACH_RISK
+
+    def test_offsite_cta_dm_to_claim(self):
+        result = result_for(audio_transcript="想要這份清單的私訊我領取")
+        assert any(d.rule_id == "reach.offsite_cta" for d in result.detections)
+
+    def test_money_hype(self):
+        result = result_for(caption="教你打造被動收入，財富自由不是夢")
+        assert any(d.rule_id == "reach.money_hype" for d in result.detections)
+        assert result.verdict is Verdict.REACH_RISK
+
+    def test_teacher_led_trading_is_violation(self):
+        result = result_for(audio_transcript="加入群組老師帶單")
+        assert result.verdict is Verdict.VIOLATION_RISK
+
+    def test_diet_miracle_product(self):
+        result = result_for(caption="這款減肥神藥真的有感")
+        assert any(d.rule_id == "reach.health_claims" for d in result.detections)
+
+    def test_before_after_comparison(self):
+        result = result_for(caption="使用前後對比照，效果超明顯")
+        assert any(d.rule_id == "reach.health_claims" for d in result.detections)
+
 
 class TestViolationRisk:
     def test_regulated_goods(self):
