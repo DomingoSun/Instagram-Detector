@@ -37,13 +37,15 @@
   label { display: block; font-weight: 600; font-size: .9rem; margin: 12px 0 4px; }
   label:first-child { margin-top: 0; }
   .hint { font-weight: 400; color: var(--muted); }
-  textarea, select, input[type=file] {
+  textarea, select, input[type=file], input[type=password], input[type=text] {
     width: 100%; border: 1px solid var(--border); border-radius: 8px;
     background: var(--bg); color: var(--text); padding: 10px 12px; font: inherit;
   }
   textarea { resize: vertical; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 160px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: .9rem; }
+  .check input { width: auto; }
   button {
     margin-top: 16px; width: 100%; padding: 12px; border: 0; border-radius: 8px;
     background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer;
@@ -79,11 +81,14 @@
   .finding .fix { font-size: .9rem; margin-top: 4px; }
   .finding .fix::before { content: "建議："; font-weight: 700; }
   h2 { font-size: 1.05rem; margin: 0 0 8px; }
+  h3 { font-size: .95rem; margin: 16px 0 4px; }
   #player { width: 100%; border-radius: 8px; margin-top: 8px; display: none; background: #000; }
-  #transcript { font-size: .9rem; }
-  #transcript .seg { padding: 2px 0; }
-  #transcript .seg .t { color: var(--muted); font-family: ui-monospace, monospace; margin-right: 8px; cursor: pointer; }
-  #transcript .seg.hit { background: var(--review-bg); border-radius: 6px; padding: 2px 6px; }
+  .seglist { font-size: .9rem; }
+  .seglist .seg { padding: 2px 0; }
+  .seglist .seg .t { color: var(--muted); font-family: ui-monospace, monospace; margin-right: 8px; cursor: pointer; }
+  .seglist .seg.hit { background: var(--review-bg); border-radius: 6px; padding: 2px 6px; }
+  summary { cursor: pointer; font-weight: 700; }
+  #llmOut { white-space: pre-wrap; margin-top: 12px; font-size: .92rem; }
   footer { color: var(--muted); font-size: .8rem; margin-top: 24px; }
   footer a { color: var(--accent); }
   #results { display: none; }
@@ -92,18 +97,18 @@
 <body>
 <div class="wrap">
   <h1>🎬 Reels 影片檢測</h1>
-  <p class="sub">上傳影片，自動轉出口白逐字稿並標出<b>幾分幾秒</b>出現需要優化的字詞。
-  語音辨識與檢測全部在你的瀏覽器本地執行（第一次使用需下載辨識模型），影片不會上傳到任何伺服器。</p>
+  <p class="sub">上傳影片，自動辨識<b>口白</b>與<b>畫面上的文字</b>，標出<b>幾分幾秒</b>出現需要優化的字詞。
+  辨識與檢測預設全部在你的瀏覽器本地執行（第一次使用需下載模型），影片不會上傳到任何伺服器。</p>
   <p class="nav">📝 只想貼文字檢查？<a href="index.html">用文字版</a></p>
 
   <div class="card">
-    <label for="file">影片或音訊檔 <span class="hint">（mp4 / mov / mp3 / wav…，取音軌分析）</span></label>
+    <label for="file">影片或音訊檔 <span class="hint">（mp4 / mov / mp3 / wav…）</span></label>
     <input type="file" id="file" accept="video/*,audio/*">
     <video id="player" controls preload="metadata"></video>
 
     <div class="row">
       <div>
-        <label for="model">辨識模型</label>
+        <label for="model">語音辨識模型</label>
         <select id="model">
           <option value="Xenova/whisper-base" selected>base — 建議（約 80MB）</option>
           <option value="Xenova/whisper-tiny">tiny — 最快，準度較低（約 40MB）</option>
@@ -120,6 +125,12 @@
       </div>
     </div>
 
+    <div class="check">
+      <input type="checkbox" id="ocr" checked>
+      <label for="ocr" style="margin:0">同時檢測畫面文字（OCR）
+        <span class="hint">— 每 2 秒抽一張影格辨識字卡/字幕，較慢；花俏字體準度有限</span></label>
+    </div>
+
     <label for="caption">貼文文案 <span class="hint">（選填，一併檢查）</span></label>
     <textarea id="caption" rows="3" placeholder="要搭配這支影片的文案與 #hashtag"></textarea>
 
@@ -133,22 +144,54 @@
 
     <div class="card">
       <h2>⏱️ 需優化的字詞（依時間排序）</h2>
+      <p class="hint" style="margin:0 0 8px">🎙️ = 口白　🖼️ = 畫面文字　📝 = 貼文文案；點時間可跳轉播放</p>
       <div id="findings"></div>
     </div>
 
     <div class="card">
-      <h2>逐字稿 <span class="hint">（黃底 = 該段有命中，點時間可跳轉播放）</span></h2>
-      <div id="transcript"></div>
+      <h2>辨識內容 <span class="hint">（黃底 = 該段有命中）</span></h2>
+      <h3>🎙️ 口白逐字稿</h3>
+      <div class="seglist" id="transcript"></div>
+      <div id="ocrBlock" style="display:none">
+        <h3>🖼️ 畫面文字（OCR）</h3>
+        <div class="seglist" id="ocrList"></div>
+      </div>
     </div>
 
     <div class="card">
-      <h2>發佈前人工檢查清單 <span class="hint">（語音掃不到的部分）</span></h2>
-      <ul class="checklist" id="checklist" style="list-style:none;padding-left:0;margin:0"></ul>
+      <h2>發佈前人工檢查清單 <span class="hint">（自動檢測掃不到的部分）</span></h2>
+      <ul id="checklist" style="list-style:none;padding-left:0;margin:0"></ul>
     </div>
   </div>
 
+  <details class="card" id="llmCard">
+    <summary>🤖 AI 深度分析（選配，自備 API key）</summary>
+    <p class="hint" style="margin:8px 0">把逐字稿、畫面文字與文案送給 AI 做語意層面的審查，能抓出關鍵字比對漏掉的
+    隱晦說法，並產出「原說法 → 安全替代說法」。<b>⚠️ 隱私提醒：使用此功能時，上述文字內容會傳送到
+    所選供應商（Anthropic 或 OpenAI）的伺服器</b>；不使用則一切分析留在本機。API key 只保存在你的瀏覽器。</p>
+    <div class="row">
+      <div>
+        <label for="llmProvider">供應商 / 模型</label>
+        <select id="llmProvider">
+          <option value="anthropic" selected>Anthropic — Claude Opus 4.8</option>
+          <option value="openai">OpenAI — GPT-4o mini</option>
+        </select>
+      </div>
+      <div>
+        <label for="llmKey">API key</label>
+        <input type="password" id="llmKey" placeholder="sk-…" autocomplete="off">
+        <div class="check" style="margin-top:6px">
+          <input type="checkbox" id="llmRemember">
+          <label for="llmRemember" style="margin:0;font-weight:400;font-size:.8rem">記住在此瀏覽器（localStorage）</label>
+        </div>
+      </div>
+    </div>
+    <button id="llmRun" disabled>深度分析（請先完成上方分析）</button>
+    <div id="llmOut"></div>
+  </details>
+
   <footer>
-    ⚠️ 語音辨識會有錯字與時間誤差（模型越大越準），檢測結果僅供發佈前自我檢查參考，
+    ⚠️ 語音與畫面辨識會有錯字與時間誤差（模型越大越準），檢測結果僅供發佈前自我檢查參考，
     通過不代表保證不被限流。
     原始碼：<a href="https://github.com/DomingoSun/Instagram-Detector" target="_blank" rel="noopener">GitHub</a>
   </footer>
@@ -161,21 +204,24 @@
   const runBtn = document.getElementById("run");
   const fileEl = document.getElementById("file");
   const player = document.getElementById("player");
+  const captionEl = document.getElementById("caption");
+  const llmBtn = document.getElementById("llmRun");
+  const llmOut = document.getElementById("llmOut");
+  const llmKeyEl = document.getElementById("llmKey");
+  const llmProviderEl = document.getElementById("llmProvider");
+  const llmRememberEl = document.getElementById("llmRemember");
+
+  const OCR_STEP_SECONDS = 2;
 
   const VERDICT_LABEL = {
-    pass: "✅ 通過 — 口白與文案未發現政策問題",
+    pass: "✅ 通過 — 口白、畫面文字與文案未發現政策問題",
     review: "🔍 建議調整 — 有小問題但風險低",
     reach_risk: "⚠️ 限流風險 — 內容可能不被推薦、觸及下降",
     violation_risk: "🚫 違規風險 — 可能被下架或影響帳號",
   };
   const SEV_LABEL = { low: "低", medium: "中", high: "高", critical: "嚴重" };
   const CONS_LABEL = { removal: "下架/帳號處分", reach: "限流", quality: "最佳實務" };
-
-  for (const item of MANUAL_CHECKLIST) {
-    const li = document.createElement("li");
-    li.textContent = "☐ " + item;
-    document.getElementById("checklist").appendChild(li);
-  }
+  const SRC_ICON = { speech: "🎙️", ocr: "🖼️" };
 
   function setStatus(text, pct) {
     statusEl.textContent = text;
@@ -184,9 +230,15 @@
   }
 
   // 舊版 detector.js 快取防呆：缺少新函式時直接提示強制重新整理
-  if (typeof analyzeSegments !== "function" || typeof zhNormalize !== "function") {
+  if (typeof analyzeSegments !== "function" || typeof zhNormalize !== "function" || typeof mergeFindings !== "function") {
     setStatus("❌ 偵測到舊版快取（detector.js 版本過舊）。\n請按 Ctrl+Shift+R（Mac：Cmd+Shift+R）強制重新整理，或改用無痕視窗。");
     throw new Error("stale detector.js cache");
+  }
+
+  for (const item of MANUAL_CHECKLIST) {
+    const li = document.createElement("li");
+    li.textContent = "☐ " + item;
+    document.getElementById("checklist").appendChild(li);
   }
 
   let transformers;
@@ -205,6 +257,8 @@
       player.style.display = "block";
     }
   });
+
+  /* ---------- 音軌 → 口白逐字稿 ---------- */
 
   async function decodeToMono16k(file) {
     const buf = await file.arrayBuffer();
@@ -230,7 +284,7 @@
     transcriber = await transformers.pipeline("automatic-speech-recognition", modelId, {
       progress_callback: (p) => {
         if (p.status === "progress" && p.file) {
-          setStatus(`下載辨識模型（只需一次，之後會快取）\n${p.file}`, p.progress ?? 0);
+          setStatus(`下載語音辨識模型（只需一次，之後會快取）\n${p.file}`, p.progress ?? 0);
         }
       },
     });
@@ -238,52 +292,163 @@
     return transcriber;
   }
 
+  /* ---------- 影格抽樣 → 畫面文字（OCR） ---------- */
+
+  async function sampleFrames(url, stepSec = OCR_STEP_SECONDS, maxW = 720, onProgress) {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.preload = "auto";
+    video.src = url;
+    await new Promise((res, rej) => {
+      video.onloadedmetadata = () => res();
+      video.onerror = () => rej(new Error("無法載入影片畫面"));
+    });
+    if (!isFinite(video.duration)) {
+      // 部分錄影工具（MediaRecorder）產生的 webm 沒寫入時長，seek 到極大值逼出 duration
+      video.currentTime = 1e9;
+      await new Promise((res) => {
+        const timer = setTimeout(res, 3000);
+        video.ondurationchange = () => {
+          if (isFinite(video.duration)) { clearTimeout(timer); res(); }
+        };
+      });
+    }
+    const duration = video.duration;
+    if (!isFinite(duration) || !video.videoWidth) return [];
+
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    const times = [];
+    for (let t = Math.min(0.1, duration / 2); t < duration; t += stepSec) times.push(t);
+    const frames = [];
+    for (let i = 0; i < times.length; i++) {
+      await new Promise((res, rej) => {
+        video.onseeked = () => res();
+        video.onerror = () => rej(new Error("影格擷取失敗"));
+        video.currentTime = times[i];
+      });
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      frames.push({ t: times[i], dataUrl: canvas.toDataURL("image/png") });
+      onProgress?.(i + 1, times.length);
+    }
+    video.removeAttribute("src");
+    return frames;
+  }
+
+  let ocrWorker = null;
+
+  async function getOcrWorker() {
+    if (ocrWorker) return ocrWorker;
+    setStatus("載入 OCR 引擎與繁中語言包（只需一次，之後會快取）…");
+    const T = await import("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.esm.min.js");
+    const createWorker = T.createWorker || T.default?.createWorker;
+    ocrWorker = await createWorker(["chi_tra", "eng"]);
+    return ocrWorker;
+  }
+
+  function sameCard(a, b) {
+    const x = a.replace(/\s+/g, ""), y = b.replace(/\s+/g, "");
+    if (!x || !y) return false;
+    return x === y || x.includes(y) || y.includes(x);
+  }
+
+  async function runOcr(frames, stepSec) {
+    const worker = await getOcrWorker();
+    const segments = [];
+    for (let i = 0; i < frames.length; i++) {
+      setStatus(`畫面文字辨識中… ${i + 1}/${frames.length} 影格`, ((i + 1) / frames.length) * 100);
+      const { data } = await worker.recognize(frames[i].dataUrl);
+      const text = (data.text || "").replace(/\s+/g, " ").trim();
+      if (text.length < 4 || (data.confidence ?? 0) < 35) continue;
+      const last = segments[segments.length - 1];
+      if (last && sameCard(text, last.text) && frames[i].t - last.end <= stepSec) {
+        last.end = frames[i].t + stepSec; // 同一張字卡持續顯示：延長區間
+      } else {
+        segments.push({ start: frames[i].t, end: frames[i].t + stepSec, text });
+      }
+    }
+    return segments;
+  }
+
+  /* ---------- 分析與渲染 ---------- */
+
+  let lastAnalysis = null;
+
   runBtn.addEventListener("click", async () => {
     const file = fileEl.files[0];
     if (!file) return;
     runBtn.disabled = true;
     document.getElementById("results").style.display = "none";
+    const warnings = [];
     try {
-      setStatus("解析音軌中…");
-      const audio = await decodeToMono16k(file);
-      const durationMin = audio.length / 16000 / 60;
+      let speechSegments = [];
+      let fullText = "";
+      try {
+        setStatus("解析音軌中…");
+        const audio = await decodeToMono16k(file);
+        const asr = await getTranscriber(document.getElementById("model").value);
+        setStatus(`口白辨識中（約 ${(audio.length / 16000 / 60).toFixed(1)} 分鐘音訊，依裝置效能需要時間）…`);
+        const opts = {
+          chunk_length_s: 30, stride_length_s: 5,
+          return_timestamps: true, task: "transcribe",
+        };
+        const lang = document.getElementById("lang").value;
+        if (lang !== "auto") opts.language = lang;
+        const output = await asr(audio, opts);
+        speechSegments = (output.chunks || []).map((c) => ({
+          start: c.timestamp?.[0], end: c.timestamp?.[1], text: c.text || "",
+        })).filter((s) => s.text.trim());
+        fullText = output.text || "";
+      } catch (e) {
+        console.error(e);
+        warnings.push("口白辨識失敗（" + (e?.message || e) + "），已略過。可先把影片轉成 mp4/H.264+AAC 再試");
+      }
 
-      const asr = await getTranscriber(document.getElementById("model").value);
+      let ocrSegments = [];
+      if (document.getElementById("ocr").checked) {
+        try {
+          const frames = await sampleFrames(player.src, OCR_STEP_SECONDS, 720,
+            (i, n) => setStatus(`擷取影格… ${i}/${n}`, (i / n) * 100));
+          if (frames.length) ocrSegments = await runOcr(frames, OCR_STEP_SECONDS);
+          else warnings.push("此檔案沒有影像畫面（或無法擷取影格），已略過畫面文字檢測");
+        } catch (e) {
+          console.error(e);
+          warnings.push("畫面文字（OCR）檢測失敗：" + (e?.message || e));
+        }
+      }
 
-      setStatus(`辨識中（約 ${durationMin.toFixed(1)} 分鐘音訊，依裝置效能需要一點時間）…`);
-      const lang = document.getElementById("lang").value;
-      const opts = {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: true,
-        task: "transcribe",
-      };
-      if (lang !== "auto") opts.language = lang;
-      const output = await asr(audio, opts);
-
-      const segments = (output.chunks || []).map((c) => ({
-        start: c.timestamp?.[0],
-        end: c.timestamp?.[1],
-        text: c.text || "",
-      })).filter((s) => s.text.trim());
-
-      render(segments, output.text || "");
-      setStatus("完成 ✔");
+      if (!speechSegments.length && !ocrSegments.length && !captionEl.value.trim()) {
+        throw new Error("沒有辨識出任何可分析的內容" + (warnings.length ? "\n" + warnings.join("\n") : ""));
+      }
+      render({ speechSegments, ocrSegments, fullText });
+      setStatus("完成 ✔" + (warnings.length ? "\n⚠️ " + warnings.join("\n⚠️ ") : ""));
     } catch (e) {
       console.error(e);
-      setStatus("❌ 分析失敗：" + (e?.message || e) +
-        "\n（若是音軌解析失敗，請試著先把影片轉成 mp4/H.264+AAC 或直接上傳 mp3/wav）");
+      setStatus("❌ 分析失敗：" + (e?.message || e));
     } finally {
       runBtn.disabled = false;
     }
   });
 
-  function render(segments, fullText) {
-    const caption = document.getElementById("caption").value;
-    const findings = analyzeSegments(segments);
+  function seekTo(t) {
+    player.currentTime = t ?? 0;
+    player.play();
+  }
+
+  function render({ speechSegments = [], ocrSegments = [], fullText = "" }) {
+    const caption = captionEl.value;
+    const speechFindings = analyzeSegments(speechSegments).map((f) => ({ ...f, source: "speech" }));
+    const ocrFindings = mergeFindings(analyzeSegments(ocrSegments)).map((f) => ({ ...f, source: "ocr" }));
+    const timeline = [...speechFindings, ...ocrFindings].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+
+    const ocrText = ocrSegments.map((s) => s.text).join("\n");
     const overall = analyze({
       caption: zhNormalize(caption),
-      transcript: zhNormalize(fullText),
+      transcript: zhNormalize([fullText, ocrText].filter(Boolean).join("\n")),
     });
 
     const verdictEl = document.getElementById("verdict");
@@ -291,20 +456,20 @@
     verdictEl.textContent = VERDICT_LABEL[overall.verdict];
     const score = document.createElement("div");
     score.className = "score";
-    score.textContent = `風險分數 ${overall.risk_score}/100（口白＋文案整體評估）`;
+    score.textContent = `風險分數 ${overall.risk_score}/100（口白＋畫面文字＋文案整體評估）`;
     verdictEl.appendChild(score);
 
     // 時間軸命中
     const findEl = document.getElementById("findings");
     findEl.innerHTML = "";
-    if (!findings.length) {
+    if (!timeline.length) {
       const p = document.createElement("p");
-      p.textContent = segments.length
-        ? "口白中未發現需要優化的字詞。"
-        : "沒有辨識出可分析的口白（影片可能沒有人聲，或語言選擇不符）。";
+      p.textContent = (speechSegments.length || ocrSegments.length)
+        ? "口白與畫面文字中未發現需要優化的字詞。"
+        : "沒有辨識出可分析的口白或畫面文字。";
       findEl.appendChild(p);
     }
-    for (const f of findings) {
+    for (const f of timeline) {
       const div = document.createElement("div");
       div.className = "finding";
 
@@ -313,11 +478,11 @@
       time.className = "time";
       time.textContent = f.time;
       time.title = "點擊跳到這個時間";
-      time.addEventListener("click", () => { player.currentTime = f.start ?? 0; player.play(); });
+      time.addEventListener("click", () => seekTo(f.start));
       const badge = document.createElement("span");
       badge.className = "badge " + f.consequence;
       badge.textContent = `${SEV_LABEL[f.severity]}｜${CONS_LABEL[f.consequence]}`;
-      head.append(time, badge, `命中字詞：「${f.match}」`);
+      head.append(`${SRC_ICON[f.source]} `, time, badge, `命中字詞：「${f.match}」`);
 
       const msg = document.createElement("div");
       msg.className = "msg";
@@ -325,7 +490,7 @@
 
       const quote = document.createElement("div");
       quote.className = "quote";
-      quote.append("該段口白：");
+      quote.append(f.source === "ocr" ? "該段畫面文字：" : "該段口白：");
       const idx = f.segment_text.indexOf(f.match);
       if (idx >= 0) {
         quote.append(f.segment_text.slice(0, idx));
@@ -345,8 +510,7 @@
     }
 
     // 文案問題（無時間戳，另外列出）
-    const captionDets = overall.detections.filter((d) => d.field !== "audio_transcript");
-    for (const d of captionDets) {
+    for (const d of overall.detections.filter((x) => x.field !== "audio_transcript")) {
       const div = document.createElement("div");
       div.className = "finding";
       const head = document.createElement("div");
@@ -364,30 +528,156 @@
       findEl.appendChild(div);
     }
 
-    // 逐字稿
-    const hitStarts = new Set(findings.map((f) => f.start));
+    // 口白逐字稿
+    const speechHits = new Set(speechFindings.map((f) => f.start));
     const trEl = document.getElementById("transcript");
     trEl.innerHTML = "";
-    if (!segments.length) {
-      trEl.textContent = "（無逐字稿）";
-    }
-    for (const seg of segments) {
+    if (!speechSegments.length) trEl.textContent = "（無口白逐字稿）";
+    for (const seg of speechSegments) {
       const div = document.createElement("div");
-      div.className = "seg" + (hitStarts.has(seg.start) ? " hit" : "");
+      div.className = "seg" + (speechHits.has(seg.start) ? " hit" : "");
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = formatTime(seg.start);
-      t.addEventListener("click", () => { player.currentTime = seg.start ?? 0; player.play(); });
+      t.addEventListener("click", () => seekTo(seg.start));
       div.append(t, zhNormalize(seg.text.trim()));
       trEl.appendChild(div);
     }
+
+    // 畫面文字列表
+    const ocrBlockEl = document.getElementById("ocrBlock");
+    const ocrListEl = document.getElementById("ocrList");
+    ocrListEl.innerHTML = "";
+    ocrBlockEl.style.display = ocrSegments.length ? "block" : "none";
+    for (const seg of ocrSegments) {
+      const overlaps = ocrFindings.some((f) => (f.start ?? 0) < (seg.end ?? 0) && (f.end ?? 0) > (seg.start ?? 0));
+      const div = document.createElement("div");
+      div.className = "seg" + (overlaps ? " hit" : "");
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = formatTime(seg.start);
+      t.addEventListener("click", () => seekTo(seg.start));
+      div.append(t, zhNormalize(seg.text.trim()));
+      ocrListEl.appendChild(div);
+    }
+
+    lastAnalysis = { speechSegments, ocrSegments, fullText, caption };
+    llmBtn.disabled = false;
+    llmBtn.textContent = "深度分析";
 
     document.getElementById("results").style.display = "block";
     verdictEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  /* ---------- AI 深度分析（選配） ---------- */
+
+  const LLM_SYSTEM = `你是 Meta（Instagram Reels）的資深社群內容推薦專家與安全審核員。
+你會收到一支 Reels 影片的口白逐字稿（含時間戳）、畫面上的文字（OCR，含時間戳）與貼文文案。
+請判斷內容是否違反 Meta 的「社群守則」或「推薦準則（Recommendation Guidelines）」——
+即可能導致限流、降權、Shadowban 或下架的內容，包括沒有踩到明確關鍵字的隱晦說法。
+
+審查重點：
+1. 引流與互動誘導：點連結、私訊我、互追、點擊首頁、按讚分享才能參加抽獎等
+2. 金融與暴富話術：保證獲利、被動收入、快速致富、飆股、加 LINE 領取等
+3. 醫療與身體形象：100%有效、減肥神藥、根治、前後對比效果等
+4. 社群守則違規：管制商品、博弈、成人、暴力、危險行為
+5. Hashtag 風險
+
+請以繁體中文（台灣用語）輸出，格式如下：
+## 📊 AI 深度檢測報告
+### 【安全評級】：[🟢 安全 / 🟡 降權風險（灰色地帶）/ 🔴 嚴重違規]
+
+### ⚠️ 疑似違規/高風險內容
+- **影片口白：**（引用時間戳與原句，若無則寫「無」）
+- **畫面文字：**（同上，若無則寫「無」）
+- **貼文文案：**（若無則寫「無」）
+
+### 💡 建議修改方案
+- **原說法：**"…"（時間戳）→ **推薦安全替代說法：**"…"`;
+
+  function buildLlmInput() {
+    const { speechSegments, ocrSegments, fullText, caption } = lastAnalysis;
+    const lines = [];
+    lines.push("【影片口白逐字稿（時間戳）】");
+    if (speechSegments.length) {
+      for (const s of speechSegments) lines.push(`[${formatTime(s.start)}–${formatTime(s.end)}] ${s.text.trim()}`);
+    } else lines.push(fullText || "（無）");
+    lines.push("", "【畫面文字（OCR，時間戳）】");
+    if (ocrSegments.length) {
+      for (const s of ocrSegments) lines.push(`[${formatTime(s.start)}–${formatTime(s.end)}] ${s.text.trim()}`);
+    } else lines.push("（無）");
+    lines.push("", "【預計貼文文案與 Hashtags】", caption.trim() || "（未提供文案）");
+    return lines.join("\n");
+  }
+
+  async function callLlm(provider, key, system, userContent) {
+    if (provider === "openai") {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.3,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: userContent },
+          ],
+        }),
+      });
+      if (!r.ok) throw new Error(`OpenAI API ${r.status}：${(await r.text()).slice(0, 300)}`);
+      return (await r.json()).choices[0].message.content;
+    }
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-8",
+        max_tokens: 8192,
+        system,
+        messages: [{ role: "user", content: userContent }],
+      }),
+    });
+    if (!r.ok) throw new Error(`Anthropic API ${r.status}：${(await r.text()).slice(0, 300)}`);
+    const data = await r.json();
+    if (data.stop_reason === "refusal") throw new Error("模型基於安全政策拒絕了此請求");
+    return data.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  }
+
+  function keyStorageName() {
+    return `reels_llm_key_${llmProviderEl.value}`;
+  }
+
+  llmProviderEl.addEventListener("change", () => {
+    llmKeyEl.value = localStorage.getItem(keyStorageName()) || "";
+    llmRememberEl.checked = !!llmKeyEl.value;
+  });
+  llmKeyEl.value = localStorage.getItem(keyStorageName()) || "";
+  llmRememberEl.checked = !!llmKeyEl.value;
+
+  llmBtn.addEventListener("click", async () => {
+    const key = llmKeyEl.value.trim();
+    if (!key) { llmOut.textContent = "❌ 請先輸入 API key"; return; }
+    if (llmRememberEl.checked) localStorage.setItem(keyStorageName(), key);
+    else localStorage.removeItem(keyStorageName());
+    llmBtn.disabled = true;
+    llmOut.textContent = "🤖 分析中…（內容已送出至 " + (llmProviderEl.value === "openai" ? "OpenAI" : "Anthropic") + "）";
+    try {
+      llmOut.textContent = await callLlm(llmProviderEl.value, key, LLM_SYSTEM, buildLlmInput());
+    } catch (e) {
+      console.error(e);
+      llmOut.textContent = "❌ 深度分析失敗：" + (e?.message || e);
+    } finally {
+      llmBtn.disabled = false;
+    }
+  });
+
   // 供自動化測試使用（模擬辨識輸出直接渲染）
-  window.__test = { render, decodeToMono16k };
+  window.__test = { render, decodeToMono16k, sampleFrames, buildLlmInput: () => buildLlmInput() };
 </script>
 </body>
 </html>
