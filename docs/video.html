@@ -110,9 +110,9 @@
       <div>
         <label for="model">語音辨識模型</label>
         <select id="model">
-          <option value="Xenova/whisper-base" selected>base — 建議（約 80MB）</option>
-          <option value="Xenova/whisper-tiny">tiny — 最快，準度較低（約 40MB）</option>
-          <option value="Xenova/whisper-small">small — 較準，較慢（約 250MB）</option>
+          <option value="Xenova/whisper-tiny" selected>tiny — 最快，建議先試（約 40MB）</option>
+          <option value="Xenova/whisper-base">base — 較準，較慢（約 80MB）</option>
+          <option value="Xenova/whisper-small">small — 最準，最慢（約 250MB）</option>
         </select>
       </div>
       <div>
@@ -137,6 +137,8 @@
     <button id="run" disabled>分析影片</button>
     <div id="status">正在載入頁面資源…</div>
     <progress id="bar" max="100" value="0" style="display:none"></progress>
+    <p class="hint" style="margin-top:8px">💡 首次辨識含模型下載，純瀏覽器運算較慢：tiny 通常每分鐘影片約 20–60 秒，
+    base/small 更久（手機可能數分鐘）。想快一點就選 tiny、關掉 OCR，或改用<a href="index.html" style="color:var(--accent)">文字版</a>直接貼逐字稿。</p>
   </div>
 
   <div id="results">
@@ -391,14 +393,50 @@
         setStatus("解析音軌中…");
         const audio = await decodeToMono16k(file);
         const asr = await getTranscriber(document.getElementById("model").value);
-        setStatus(`口白辨識中（約 ${(audio.length / 16000 / 60).toFixed(1)} 分鐘音訊，依裝置效能需要時間）…`);
+
+        const durMin = audio.length / 16000 / 60;
+        const totalChunks = Math.max(1, Math.ceil(audio.length / 16000 / 30));
+        let chunkDone = 0;
+        let partial = "";
+        const t0 = performance.now();
+        let lastDecode = 0;
+        const tick = setInterval(() => {
+          const s = Math.round((performance.now() - t0) / 1000);
+          const head = totalChunks > 1
+            ? `口白辨識中… 第 ${Math.min(chunkDone + 1, totalChunks)}/${totalChunks} 段`
+            : "口白辨識中…";
+          setStatus(
+            `${head}　已進行 ${s}s（約 ${durMin.toFixed(1)} 分鐘音訊）\n` +
+            (partial ? "目前辨識到：…" + partial.slice(-50) : "首次使用需先下載模型，請稍候…"),
+            totalChunks > 1 ? (chunkDone / totalChunks) * 100 : undefined
+          );
+        }, 400);
+
         const opts = {
           chunk_length_s: 30, stride_length_s: 5,
           return_timestamps: true, task: "transcribe",
+          chunk_callback: () => { chunkDone++; },
+          callback_function: (beams) => {
+            const now = performance.now();
+            if (now - lastDecode < 500) return; // 節流：最多每 0.5s 解碼一次
+            lastDecode = now;
+            try {
+              const ids = beams?.[0]?.output_token_ids;
+              if (ids && asr.tokenizer) {
+                partial = asr.tokenizer.decode(ids, { skip_special_tokens: true }) || partial;
+              }
+            } catch (_) { /* 部分版本 payload 形狀不同，略過即可 */ }
+          },
         };
         const lang = document.getElementById("lang").value;
         if (lang !== "auto") opts.language = lang;
-        const output = await asr(audio, opts);
+
+        let output;
+        try {
+          output = await asr(audio, opts);
+        } finally {
+          clearInterval(tick);
+        }
         speechSegments = (output.chunks || []).map((c) => ({
           start: c.timestamp?.[0], end: c.timestamp?.[1], text: c.text || "",
         })).filter((s) => s.text.trim());
