@@ -40,6 +40,19 @@ Hashtag 專項檢查：
 | `reach_risk` | 有被限流的風險 | 1 |
 | `violation_risk` | 可能違反社群守則（下架/帳號處分） | 2 |
 
+## 線上版（GitHub Pages）
+
+`docs/` 內含免安裝的網頁版（純前端，檢測全部在瀏覽器本地執行，不會上傳資料），
+可直接用 GitHub Pages 部署分享給其他人測試：
+
+1. 到 repo 的 **Settings → Pages**
+2. Source 選 **Deploy from a branch**，選擇分支與 `/docs` 資料夾，儲存
+3. 一兩分鐘後網址就會生效：`https://<帳號>.github.io/Instagram-Detector/`
+
+> 注意：私人 repo 要 GitHub Pro/團隊方案才能開 Pages，公開 repo 免費。
+> 網頁版是 `docs/detector.js` 的 JS 移植，規則以 Python 版
+> （`src/reels_safety/rules.py`）為準，兩邊修改時需同步。
+
 ## 安裝
 
 ```bash

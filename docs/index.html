@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reels 發佈前政策檢查器</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --card: #ffffff; --text: #1c1c1e; --muted: #6b6b70;
+    --border: #e3e3e6; --accent: #405de6;
+    --pass: #1a7f37; --review: #9a6700; --reach: #bc4c00; --violation: #cf222e;
+    --pass-bg: #dafbe1; --review-bg: #fff8c5; --reach-bg: #fff1e5; --violation-bg: #ffebe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101014; --card: #1b1b21; --text: #ececf0; --muted: #9a9aa2;
+      --border: #2e2e36; --accent: #8b9cf7;
+      --pass: #4ade80; --review: #facc15; --reach: #fb923c; --violation: #f87171;
+      --pass-bg: #12261a; --review-bg: #29230d; --reach-bg: #2b1c10; --violation-bg: #2b1416;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: .9rem; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  label { display: block; font-weight: 600; font-size: .9rem; margin: 12px 0 4px; }
+  label:first-child { margin-top: 0; }
+  .hint { font-weight: 400; color: var(--muted); }
+  textarea, input[type=text] {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); padding: 10px 12px;
+    font: inherit; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    margin-top: 16px; width: 100%; padding: 12px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 700;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  .verdict {
+    display: none; border-radius: 12px; padding: 14px 16px;
+    font-weight: 700; margin-bottom: 16px; border: 1px solid var(--border);
+  }
+  .verdict.pass { display: block; color: var(--pass); background: var(--pass-bg); }
+  .verdict.review { display: block; color: var(--review); background: var(--review-bg); }
+  .verdict.reach_risk { display: block; color: var(--reach); background: var(--reach-bg); }
+  .verdict.violation_risk { display: block; color: var(--violation); background: var(--violation-bg); }
+  .score { font-weight: 400; font-size: .9rem; opacity: .85; }
+  .det { border-top: 1px solid var(--border); padding: 12px 0; }
+  .det:first-child { border-top: 0; padding-top: 0; }
+  .badge {
+    display: inline-block; font-size: .75rem; font-weight: 700;
+    border-radius: 999px; padding: 1px 10px; margin-right: 6px; vertical-align: 1px;
+  }
+  .badge.removal { color: var(--violation); background: var(--violation-bg); }
+  .badge.reach { color: var(--reach); background: var(--reach-bg); }
+  .badge.quality { color: var(--muted); background: var(--bg); }
+  .det .msg { font-weight: 600; }
+  .det .meta { color: var(--muted); font-size: .85rem; margin-top: 2px; word-break: break-all; }
+  .det .fix { font-size: .9rem; margin-top: 4px; }
+  .det .fix::before { content: "建議："; font-weight: 700; }
+  ul.checklist { padding-left: 0; list-style: none; margin: 8px 0 0; }
+  ul.checklist li { padding: 4px 0 4px 28px; position: relative; font-size: .9rem; }
+  ul.checklist li::before {
+    content: "☐"; position: absolute; left: 4px; color: var(--muted);
+  }
+  h2 { font-size: 1.05rem; margin: 0 0 4px; }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 24px; }
+  footer a { color: var(--accent); }
+  #results { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📋 Reels 發佈前政策檢查器</h1>
+  <p class="sub">發佈前貼上你的文案與口白，檢查有沒有可能違反 Instagram 政策、
+  被限流（不被推薦）或被下架的內容。全部在你的瀏覽器本地執行，不會上傳任何資料。</p>
+
+  <div class="card">
+    <label for="caption">貼文文案 <span class="hint">（含 #hashtag 會自動解析）</span></label>
+    <textarea id="caption" rows="5" placeholder="例：7天瘦5公斤！保證有效！按讚+分享就抽獎 #fitness #tagsforlikes"></textarea>
+
+    <label for="transcript">影片口白/字幕逐字稿 <span class="hint">（選填）</span></label>
+    <textarea id="transcript" rows="4" placeholder="影片裡說的話也會被審查，建議一併檢查"></textarea>
+
+    <label for="hashtags">額外 hashtag <span class="hint">（選填，用空格或逗號分隔）</span></label>
+    <input type="text" id="hashtags" placeholder="fitness 健身 vlog">
+
+    <button id="run">檢查</button>
+  </div>
+
+  <div id="results">
+    <div id="verdict" class="verdict"></div>
+    <div class="card" id="detCard">
+      <h2>發現的問題</h2>
+      <div id="detections"></div>
+    </div>
+    <div class="card">
+      <h2>發佈前人工檢查清單 <span class="hint">（文字掃不到的部分）</span></h2>
+      <ul class="checklist" id="checklist"></ul>
+    </div>
+  </div>
+
+  <footer>
+    ⚠️ 本工具依公開的社群守則與推薦準則整理常見風險樣式，通過檢查不代表保證不被限流；
+    Instagram 的執行標準會隨時間變動。
+    原始碼與 CLI 版本：<a href="https://github.com/DomingoSun/Instagram-Detector" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+</div>
+
+<script src="detector.js"></script>
+<script>
+  const VERDICT_LABEL = {
+    pass: "✅ 通過 — 未發現政策問題",
+    review: "🔍 建議調整 — 有小問題但風險低",
+    reach_risk: "⚠️ 限流風險 — 內容可能不被推薦、觸及下降",
+    violation_risk: "🚫 違規風險 — 可能被下架或影響帳號",
+  };
+  const SEV_LABEL = { low: "低", medium: "中", high: "高", critical: "嚴重" };
+  const CONS_LABEL = { removal: "下架/帳號處分", reach: "限流", quality: "最佳實務" };
+
+  const checklistEl = document.getElementById("checklist");
+  for (const item of MANUAL_CHECKLIST) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    checklistEl.appendChild(li);
+  }
+
+  document.getElementById("run").addEventListener("click", () => {
+    const caption = document.getElementById("caption").value;
+    const transcript = document.getElementById("transcript").value;
+    const hashtags = document.getElementById("hashtags").value
+      .split(/[\s,，、]+/).map((s) => s.trim()).filter(Boolean);
+
+    if (!caption.trim() && !transcript.trim() && !hashtags.length) {
+      alert("請至少輸入文案、逐字稿或 hashtag。");
+      return;
+    }
+
+    const result = analyze({ caption, transcript, hashtags });
+
+    const verdictEl = document.getElementById("verdict");
+    verdictEl.className = "verdict " + result.verdict;
+    verdictEl.innerHTML = "";
+    verdictEl.append(VERDICT_LABEL[result.verdict]);
+    const score = document.createElement("div");
+    score.className = "score";
+    score.textContent = `風險分數 ${result.risk_score}/100`;
+    verdictEl.appendChild(score);
+
+    const detsEl = document.getElementById("detections");
+    detsEl.innerHTML = "";
+    if (!result.detections.length) {
+      const p = document.createElement("p");
+      p.textContent = "文字內容未發現政策問題。";
+      detsEl.appendChild(p);
+    }
+    for (const d of result.detections) {
+      const div = document.createElement("div");
+      div.className = "det";
+
+      const msg = document.createElement("div");
+      msg.className = "msg";
+      const badge = document.createElement("span");
+      badge.className = "badge " + d.consequence;
+      badge.textContent = `${SEV_LABEL[d.severity]}｜${CONS_LABEL[d.consequence]}`;
+      msg.appendChild(badge);
+      msg.append(d.message);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `位置：${d.field}　證據：「${d.evidence}」`;
+
+      const fix = document.createElement("div");
+      fix.className = "fix";
+      fix.textContent = d.suggestion;
+
+      div.append(msg, meta, fix);
+      detsEl.appendChild(div);
+    }
+
+    document.getElementById("results").style.display = "block";
+    verdictEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+</script>
+</body>
+</html>
